@@ -1,0 +1,28 @@
+{
+  "name": "hardhat-project",
+  "type": "commonjs",
+  "scripts": {
+    "test": "hardhat test",
+    "circuits:setup": "rimraf ./circuits/keys && mkdir -p ./circuits/keys && zokrates setup --input ./circuits/out/out -p ./circuits/keys/proving.key -v ./circuits/keys/verification.key",
+    "circuits:compute-witness": "rimraf ./circuits/witness && mkdir -p ./circuits/witness && zokrates compute-witness -i ./circuits/out/out -s ./circuits/out/abi.json -o ./circuits/witness/witness --circom-witness ./circuits/witness/out.wtns",
+    "circuits:generate-proof": "rimraf ./circuits/proofs && mkdir -p ./circuits/proofs && zokrates generate-proof --input ./circuits/out/out --proving-key-path ./circuits/keys/proving.key --witness ./circuits/witness/witness --proof-path ./circuits/proofs/proof.json",
+    "circuits:export-verifier": "zokrates export-verifier --output ./contracts/Verifier.sol"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "@types/circomlibjs": "0.1.6",
+    "hardhat": "^2.22.5",
+    "rimraf": "6.0.1",
+    "typescript": "5.6.2"
+  },
+  "dependencies": {
+    "@openzeppelin/contracts": "5.0.2",
+    "@openzeppelin/merkle-tree": "1.0.7",
+    "circomlibjs": "0.1.7",
+    "fix-esm": "1.0.1",
+    "fixed-merkle-tree": "0.7.3",
+    "keccak256": "1.0.6",
+    "solc": "0.8.27",
+    "zokrates-js": "1.1.9"
+  }
+}
