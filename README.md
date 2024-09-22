@@ -1,7 +1,8 @@
 
-# Zokrates Tornado
+# Zokrates vote
 
-A simple implementation of tornado to showcase zokrates.
+Anonymous voting on Ethereum blockchain using zero knowledge proof with zokrates.
+
 
 Commands:
 
@@ -13,8 +14,13 @@ Commands:
 
 Details:
 
-Circuits in `contracts/circuits`. Unlike tornado-core uses mimcsponge for both commitment and merkle tree. 
-Fixed merkle tree class has it's own implementation in utils.
-Within utils also functions to create commitments and collect events to rebuild the merkle tree locally.
+Circuits in `contracts/circuits`.
 Tests use `zokrates-js` to compile on the fly the circuits and create dynamic proofs leveraging fixtures.
-MerkleTreeWithHistory.sol heavily inspired from tornado-core, pending to make it more generic for other use cases.
+
+How it works:
+
+1. Admin registers validators
+2. Voters create commitments and ask validators to include them in the tree
+3. Validators validate user identity and include the commitment
+4. Users summit their vote using zk proofs to indicate they belong to the tree and have the nullifier for a commitment
+5. Vote is registered without revealing what each voter voted.
