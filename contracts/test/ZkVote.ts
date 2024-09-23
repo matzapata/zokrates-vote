@@ -1,13 +1,11 @@
 import hre, { ethers } from "hardhat";
 import { loadFixture } from "@nomicfoundation/hardhat-toolbox/network-helpers";
 import { buildMimcSponge, mimcSpongecontract } from "circomlibjs";
-
 import { expect } from "chai"
-import { FixedMerkleTree } from "../utils/fixed-merkle-tree";
-import { generateCommitment } from "../utils/commitment";
-import { buildVerifier } from "../utils/verifier";
+import fs from "fs"
+import path from "path"
+import { SEED } from "../utils/mimc";
 
-const SEED = "mimcsponge";
 const TREE_LEVELS = 6;
 
 describe("ZkVote", function () {
@@ -27,8 +25,7 @@ describe("ZkVote", function () {
         const mimcsponge = await buildMimcSponge();
 
         // compile circuits and deploy verifier
-        const cVerifier = await buildVerifier()
-        const Verifier = new hre.ethers.ContractFactory(cVerifier.abi, cVerifier.bytecode, signers[0])
+        const Verifier =  await hre.ethers.getContractFactory("Verifier");
         const verifier = await Verifier.deploy()
 
         // deploy ZkVote
@@ -38,39 +35,8 @@ describe("ZkVote", function () {
         // register validator
         await zkVote.connect(owner).registerValidator(validator.address)
 
-        return { zkVote, mimcsponge, cVerifier, verifier, votingOptions, owner, validator, voter };
+        return { zkVote, mimcsponge, verifier, votingOptions, owner, validator, voter };
     }
-
-    describe("#circuit", () => {
-        it("Should verify transaction", async () => {
-            const { mimcsponge, cVerifier } = await loadFixture(deployFixture);
-
-            // generate commitment
-            const { commitment, nullifier, nullifierHash, secret } = await generateCommitment()
-
-            // generate proof
-            const tree = new FixedMerkleTree(TREE_LEVELS, [commitment], buildHashFunction(mimcsponge));
-            const path = tree.path(commitment)
-
-            const { witness } = cVerifier.provider.computeWitness(cVerifier.circuit, [
-                tree.root.toString(),
-                nullifierHash.toString(),
-                secret.toString(),
-                nullifier.toString(),
-                path.pathElements,
-                path.pathDirection
-            ]);
-            const proof = cVerifier.provider.generateProof(
-                cVerifier.circuit.program,
-                witness,
-                cVerifier.keypair.pk
-            );
-
-            // verify off-chain
-            const isVerified = cVerifier.provider.verify(cVerifier.keypair.vk, proof);
-            expect(isVerified).to.be.true;
-        })
-    })
 
     describe("#registerValidator", () => {
         it("should revert if not owner", async () => {
@@ -119,27 +85,8 @@ describe("ZkVote", function () {
 
     describe("#vote", () => {
         it("should work", async () => {
-            const { zkVote, cVerifier, mimcsponge, validator, voter } = await loadFixture(deployFixture);
-
-            // generate commitment
-            const { commitment, nullifier, nullifierHash, secret } = await generateCommitment()
-
-            // generate proof
-            const tree = new FixedMerkleTree(TREE_LEVELS, [commitment], buildHashFunction(mimcsponge));
-            const path = tree.path(commitment)
-            const { witness } = cVerifier.provider.computeWitness(cVerifier.circuit, [
-                tree.root.toString(),
-                nullifierHash.toString(),
-                secret.toString(),
-                nullifier.toString(),
-                path.pathElements,
-                path.pathDirection
-            ]);
-            const proof = cVerifier.provider.generateProof(
-                cVerifier.circuit.program,
-                witness,
-                cVerifier.keypair.pk
-            );
+            const { zkVote, validator, voter } = await loadFixture(deployFixture);
+            const { proof, commitment, nullifierHash, root } = loadProofFixture()
 
             await expect(zkVote.connect(validator).registerVoter(toHex(commitment)))
                 .not.to.be.reverted
@@ -147,7 +94,7 @@ describe("ZkVote", function () {
             const selectedOption = 1
             const beforeVotes = await zkVote.getVotes(selectedOption)
 
-            await expect(zkVote.connect(voter).vote(proof.proof, toHex(tree.root), toHex(nullifierHash), selectedOption))
+            await expect(zkVote.connect(voter).vote(proof.proof as any, toHex(root), toHex(nullifierHash), selectedOption))
                 .not.to.be.reverted
 
             const afterVotes = await zkVote.getVotes(selectedOption)
@@ -155,92 +102,35 @@ describe("ZkVote", function () {
         })
 
         it('should prevent double voting', async () => {
-            const { zkVote, validator, cVerifier, mimcsponge, voter } = await loadFixture(deployFixture);
-
-            // generate commitment
-            const { commitment, nullifier, nullifierHash, secret } = await generateCommitment()
-
-            // generate proof
-            const tree = new FixedMerkleTree(TREE_LEVELS, [commitment], buildHashFunction(mimcsponge));
-            const path = tree.path(commitment)
-            const { witness } = cVerifier.provider.computeWitness(cVerifier.circuit, [
-                tree.root.toString(),
-                nullifierHash.toString(),
-                secret.toString(),
-                nullifier.toString(),
-                path.pathElements,
-                path.pathDirection
-            ]);
-            const proof = cVerifier.provider.generateProof(
-                cVerifier.circuit.program,
-                witness,
-                cVerifier.keypair.pk
-            );
+            const { zkVote, validator, voter } = await loadFixture(deployFixture);
+            const { proof, commitment, nullifierHash, root } = loadProofFixture()
 
             await expect(zkVote.connect(validator).registerVoter(toHex(commitment)))
                 .not.to.be.reverted
 
 
-            await expect(zkVote.connect(voter).vote(proof.proof, toHex(tree.root), toHex(nullifierHash), 0))
+            await expect(zkVote.connect(voter).vote(proof.proof as any, toHex(root), toHex(nullifierHash), 0))
                 .not.to.be.reverted
 
-            await expect(zkVote.connect(voter).vote(proof.proof, toHex(tree.root), toHex(nullifierHash), 1))
+            await expect(zkVote.connect(voter).vote(proof.proof as any, toHex(root), toHex(nullifierHash), 1))
                 .to.be.revertedWith("Vote already registered")
         })
 
 
         it('should throw for unregistered commitments', async () => {
-            const { zkVote, voter, cVerifier, mimcsponge } = await loadFixture(deployFixture);
-
-            // generate commitment
-            const { commitment, nullifier, nullifierHash, secret } = await generateCommitment()
-
-            // generate proof
-            const tree = new FixedMerkleTree(TREE_LEVELS, [commitment], buildHashFunction(mimcsponge));
-            const path = tree.path(commitment)
-            const { witness } = cVerifier.provider.computeWitness(cVerifier.circuit, [
-                tree.root.toString(),
-                nullifierHash.toString(),
-                secret.toString(),
-                nullifier.toString(),
-                path.pathElements,
-                path.pathDirection
-            ]);
-            const proof = cVerifier.provider.generateProof(
-                cVerifier.circuit.program,
-                witness,
-                cVerifier.keypair.pk
-            );
+            const { zkVote, voter } = await loadFixture(deployFixture);
+            const { proof, nullifierHash, root } = loadProofFixture()
 
             // Omit deposit
             // await expect(zkVote.connect(validator).registerVoter(toHex(commitment)))
 
-            await expect(zkVote.connect(voter).vote(proof.proof, toHex(tree.root), toHex(nullifierHash), 2))
+            await expect(zkVote.connect(voter).vote(proof.proof as any, toHex(root), toHex(nullifierHash), 2))
                 .to.be.revertedWith("Cannot find your merkle root")
         })
 
         it('should reject with tampered public inputs', async () => {
-            const { zkVote, validator, voter, cVerifier, mimcsponge } = await loadFixture(deployFixture);
-
-            // generate commitment
-            const { commitment, nullifier, nullifierHash, secret } = await generateCommitment()
-
-            // generate proof
-            const tree = new FixedMerkleTree(TREE_LEVELS, [commitment], buildHashFunction(mimcsponge));
-            const path = tree.path(commitment)
-            const { witness } = cVerifier.provider.computeWitness(cVerifier.circuit, [
-                tree.root.toString(),
-                nullifierHash.toString(),
-                secret.toString(),
-                nullifier.toString(),
-                path.pathElements,
-                path.pathDirection
-            ]);
-            const proof = cVerifier.provider.generateProof(
-                cVerifier.circuit.program,
-                witness,
-                cVerifier.keypair.pk
-            );
+            const { zkVote, validator, voter } = await loadFixture(deployFixture);
+            const { proof, commitment, root } = loadProofFixture()
 
             await expect(zkVote.connect(validator).registerVoter(toHex(commitment)))
                 .not.to.be.reverted
@@ -249,51 +139,28 @@ describe("ZkVote", function () {
             const corruptedNullifierHash = toHex(1)
 
             const recipient = (await hre.ethers.getSigners())[0]
-            await expect(zkVote.connect(voter).vote(proof.proof, toHex(tree.root), corruptedNullifierHash, 2))
+            await expect(zkVote.connect(voter).vote(proof.proof as any, toHex(root), corruptedNullifierHash, 2))
                 .to.be.revertedWith("Invalid withdraw proof")
         })
     })
 
     describe('#hasVoted', () => {
         it('should work', async () => {
-            const { zkVote, validator, voter, cVerifier, mimcsponge } = await loadFixture(deployFixture);
-
-            // generate commitment
-            const { commitment, nullifier, nullifierHash, secret } = await generateCommitment()
-
-            // generate proof
-            const tree = new FixedMerkleTree(TREE_LEVELS, [commitment], buildHashFunction(mimcsponge));
-            const path = tree.path(commitment)
-            const { witness } = cVerifier.provider.computeWitness(cVerifier.circuit, [
-                tree.root.toString(),
-                nullifierHash.toString(),
-                secret.toString(),
-                nullifier.toString(),
-                path.pathElements,
-                path.pathDirection
-            ]);
-            const proof = cVerifier.provider.generateProof(
-                cVerifier.circuit.program,
-                witness,
-                cVerifier.keypair.pk
-            );
+            const { zkVote, validator, voter } = await loadFixture(deployFixture);
+            const { proof, commitment, nullifierHash, root } = loadProofFixture()
 
             await expect(zkVote.connect(validator).registerVoter(toHex(commitment)))
                 .not.to.be.reverted
 
             expect(await zkVote.hasVoted(toHex(nullifierHash))).to.be.false
 
-            await expect(zkVote.connect(voter).vote(proof.proof, toHex(tree.root), toHex(nullifierHash), 2))
+            await expect(zkVote.connect(voter).vote(proof.proof as any, toHex(root), toHex(nullifierHash), 2))
                 .not.to.be.reverted
 
             expect(await zkVote.hasVoted(toHex(nullifierHash))).to.be.true
         })
     })
 });
-
-function buildHashFunction(mimcsponge: any) {
-    return (l: bigint, r: bigint) => BigInt(mimcsponge.F.toString(mimcsponge.multiHash([l, r])))
-}
 
 const toHex = (number: string | number | bigint, length = 32) =>
     '0x' +
@@ -303,4 +170,28 @@ const toHex = (number: string | number | bigint, length = 32) =>
 
 function expectAny() {
     return true
+}
+
+
+function loadProofFixture() {
+    const fixture = fs.readFileSync(path.join(__dirname, "./fixtures/proof.json"))
+    return JSON.parse(fixture.toString()) as {
+        "root": string;
+        "commitment": string;
+        "nullifierHash": string;
+        "secret": string;
+        "nullifier": string;
+        "pathElements": string[];
+        "pathDirection": boolean[],
+        "proof": {
+            "scheme": string;
+            "curve": string;
+            "proof": {
+                "a": string[];
+                "b": string[][];
+                "c": string[];
+            },
+            "inputs": string[];
+        }
+    }
 }

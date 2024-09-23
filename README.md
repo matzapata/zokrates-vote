@@ -7,15 +7,14 @@ Anonymous voting on Ethereum blockchain using zero knowledge proof with zokrates
 Commands:
 
 - `make compile` -> Compiles circuits and contracts
-- `make compile-circuits` -> Compile circuits
+- `make compile-circuits` -> Compile circuits and creates fixture proof for tests
 - `make compile-contracts` -> Compile contracts
 - `make tests` -> runs tests
-- `make proof` -> Takes `contracts/input.json` to create a proof for the circuit
 
 Details:
 
 Circuits in `contracts/circuits`.
-Tests use `zokrates-js` to compile on the fly the circuits and create dynamic proofs leveraging fixtures.
+Script in `scripts/compile-circuits.ts` uses `zokrates-js` to compile on the circuits, generate the verifier contract and a fixture proof for the tests.
 
 How it works:
 
